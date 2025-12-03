@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
+import bz2
+import gzip
+import logging
+import lzma
 import os
+import shutil
 import sys
 import tarfile
-import gzip
-import bz2
-import lzma
-import shutil
-import logging
 import time
 import traceback
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
-import yaml
 import requests
-from kubernetes import config, client
-from kubernetes.client.rest import ApiException
+import yaml
 from git import Repo
 from git.exc import InvalidGitRepositoryError
+from kubernetes import client, config
+from kubernetes.client.rest import ApiException
 
 
 # === Logging (match original style) ===
@@ -35,9 +35,12 @@ class KubeDumpFormatter(logging.Formatter):
         else:
             out = msg
         if self.with_timestamp:
-            ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
             out = f"{ts} {out}"
         return out
+
 
 def setup_logger(silent: bool = False, with_timestamp: bool = False):
     logger = logging.getLogger("kube-dump")
@@ -49,6 +52,7 @@ def setup_logger(silent: bool = False, with_timestamp: bool = False):
     logger.propagate = False
     logger.setLevel(logging.DEBUG)
     return logger
+
 
 logger = logging.getLogger("kube-dump")
 
@@ -70,14 +74,25 @@ def clean_resource(obj: Dict[str, Any], detailed: bool = False) -> Dict[str, Any
     if not detailed:
         obj.pop("status", None)
         meta = obj.get("metadata", {})
-        for key in ["uid", "resourceVersion", "generation", "managedFields", "creationTimestamp"]:
+        for key in [
+            "uid",
+            "resourceVersion",
+            "generation",
+            "managedFields",
+            "creationTimestamp",
+        ]:
             meta.pop(key, None)
         obj["metadata"] = meta
     return obj
 
 
 # === Save object ===
-def save_object(obj: Dict[str, Any], base_dir: Path, resource_name: str, namespace: Optional[str] = None):
+def save_object(
+    obj: Dict[str, Any],
+    base_dir: Path,
+    resource_name: str,
+    namespace: Optional[str] = None,
+):
     name = obj.get("metadata", {}).get("name")
     if not name:
         return
@@ -86,7 +101,7 @@ def save_object(obj: Dict[str, Any], base_dir: Path, resource_name: str, namespa
     else:
         path = base_dir / "cluster" / resource_name / f"{name}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Reorder keys to have apiVersion and kind first (standard k8s manifest order)
     ordered = {}
     for key in ["apiVersion", "kind", "metadata", "spec", "data", "stringData", "type"]:
@@ -96,14 +111,16 @@ def save_object(obj: Dict[str, Any], base_dir: Path, resource_name: str, namespa
     for key, value in obj.items():
         if key not in ordered:
             ordered[key] = value
-    
+
     with path.open("w") as f:
         yaml.dump(ordered, f, default_flow_style=False, sort_keys=False)
 
 
 # === Discover all readable API resources ===
 # Returns tuples of (group, version, res_name, namespaced, kind)
-def discover_resources() -> Tuple[List[Tuple[str, str, str, bool, str]], List[Tuple[str, str, str, bool, str]]]:
+def discover_resources() -> (
+    Tuple[List[Tuple[str, str, str, bool, str]], List[Tuple[str, str, str, bool, str]]]
+):
     ns_list = []
     cluster_list = []
 
@@ -112,7 +129,13 @@ def discover_resources() -> Tuple[List[Tuple[str, str, str, bool, str]], List[Tu
         core = call_k8s_api("/api/v1")
         for res in core.get("resources", []):
             if "list" in res.get("verbs", []):
-                item = ("", "v1", res["name"], res.get("namespaced", False), res.get("kind", ""))
+                item = (
+                    "",
+                    "v1",
+                    res["name"],
+                    res.get("namespaced", False),
+                    res.get("kind", ""),
+                )
                 (ns_list if item[3] else cluster_list).append(item)
     except Exception as e:
         logger.debug(f"Failed to discover core v1: {e}")
@@ -133,7 +156,13 @@ def discover_resources() -> Tuple[List[Tuple[str, str, str, bool, str]], List[Tu
                 res_list = call_k8s_api(f"/apis/{group_name}/{version}")
                 for res in res_list.get("resources", []):
                     if "list" in res.get("verbs", []):
-                        item = (group_name, version, res["name"], res.get("namespaced", False), res.get("kind", ""))
+                        item = (
+                            group_name,
+                            version,
+                            res["name"],
+                            res.get("namespaced", False),
+                            res.get("kind", ""),
+                        )
                         (ns_list if item[3] else cluster_list).append(item)
             except Exception as e:
                 logger.debug(f"Skip {group_name}/{version}: {e}")
@@ -150,13 +179,13 @@ def send_slack_notification(
     cluster_name: str,
     success: bool,
     error_message: Optional[str] = None,
-    duration: Optional[float] = None
+    duration: Optional[float] = None,
 ):
     if not slack_url:
         return
-    
+
     color = "#36a64f" if success else "#dc3545"
-    
+
     if success:
         if duration is not None:
             text = f"kube-dump backup on {cluster_name} completed in {duration:.1f}s"
@@ -164,41 +193,32 @@ def send_slack_notification(
             text = f"kube-dump backup on {cluster_name} is success"
     else:
         text = f"kube-dump backup on {cluster_name} is failed"
-    
+
     fields = []
     if not success and duration is not None:
-        fields.append({
-            "title": "Duration",
-            "value": f"{duration:.1f}s",
-            "short": True
-        })
+        fields.append({"title": "Duration", "value": f"{duration:.1f}s", "short": True})
     if error_message:
-        fields.append({
-            "title": "Error",
-            "value": f"```{error_message[:500]}```",
-            "short": False
-        })
-    
+        fields.append(
+            {"title": "Error", "value": f"```{error_message[:500]}```", "short": False}
+        )
+
     payload = {
         "channel": channel,
         "username": "kube-dump",
         "icon_emoji": ":kubernetes:",
         "attachments": [
-            {
-                "color": color,
-                "text": text,
-                "fields": fields,
-                "ts": int(time.time())
-            }
-        ]
+            {"color": color, "text": text, "fields": fields, "ts": int(time.time())}
+        ],
     }
-    
+
     try:
         resp = requests.post(slack_url, json=payload, timeout=10)
         if resp.status_code != 200:
             logger.warning(f"Slack notification failed: {resp.status_code} {resp.text}")
         else:
-            logger.info(f"Slack notification sent: {'success' if success else 'failed'}")
+            logger.info(
+                f"Slack notification sent: {'success' if success else 'failed'}"
+            )
     except Exception as e:
         logger.warning(f"Failed to send Slack notification: {e}")
 
@@ -206,6 +226,7 @@ def send_slack_notification(
 # === Git ops ===
 class GitError(Exception):
     """Raised when git operations fail"""
+
     pass
 
 
@@ -217,17 +238,17 @@ def git_init_and_pull(
     """Initialize/clone repo and pull latest changes, then clean old backup folders."""
     if not remote_url:
         return None
-    
+
     git_dir = repo_path / ".git"
     repo_path.mkdir(parents=True, exist_ok=True)
-    
+
     if git_dir.exists():
         repo = Repo(repo_path)
         logger.info(f"Using existing git repo in {repo_path}")
     else:
         repo = Repo.init(repo_path)
         logger.info(f"Initialized new git repo in {repo_path}")
-    
+
     # Try to pull from remote
     try:
         repo.git.fetch(remote_url, branch)
@@ -246,7 +267,7 @@ def git_init_and_pull(
             repo.git.checkout("-b", branch)
         else:
             repo.git.checkout(branch)
-    
+
     # Clean old backup folders (keep .git and archives)
     for item in repo_path.iterdir():
         if item.name.startswith(".git"):
@@ -256,7 +277,7 @@ def git_init_and_pull(
         if item.is_dir():
             shutil.rmtree(item)
             logger.debug(f"Removed old folder: {item.name}")
-    
+
     return repo
 
 
@@ -267,13 +288,17 @@ def git_commit_and_push(
     remote_url: str,
     commit_user: str,
     commit_email: str,
-    push: bool
+    push: bool,
 ):
     """Commit changes and push to remote."""
     if repo.is_dirty(untracked_files=True):
         repo.git.add(all=True)
         author = f"{commit_user} <{commit_email}>"
-        repo.git.commit(message=f"Backup {datetime.now(timezone.utc).isoformat()}", author=author, no_verify=True)
+        repo.git.commit(
+            message=f"Backup {datetime.now(timezone.utc).isoformat()}",
+            author=author,
+            no_verify=True,
+        )
         logger.info(f"Committing changes to git (branch: {branch})")
         if push:
             try:
@@ -287,11 +312,19 @@ def git_commit_and_push(
 
 # === CLI ===
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
-@click.argument("command", required=False, type=click.Choice([
-    "all", "dump", "ns", "dump-namespaces", "cls", "dump-cluster"
-]))
+@click.argument(
+    "command",
+    required=False,
+    type=click.Choice(["all", "dump", "ns", "dump-namespaces", "cls", "dump-cluster"]),
+)
 @click.option("--silent", "-s", is_flag=True, envvar="SILENT")
-@click.option("--destination-dir", "-d", type=click.Path(), default="./data", envvar="DESTINATION_DIR")
+@click.option(
+    "--destination-dir",
+    "-d",
+    type=click.Path(),
+    default="./data",
+    envvar="DESTINATION_DIR",
+)
 @click.option("--force-remove", "-f", is_flag=True, envvar="FORCE_REMOVE")
 @click.option("--detailed", is_flag=True, envvar="DETAILED")
 @click.option("--namespaces", "-n", default="", envvar="NAMESPACES")
@@ -303,11 +336,18 @@ def git_commit_and_push(
 @click.option("--git-push", "-p", is_flag=True, envvar="GIT_PUSH")
 @click.option("--git-branch", "-b", default="main", envvar="GIT_BRANCH")
 @click.option("--git-commit-user", default="kube-dump", envvar="GIT_COMMIT_USER")
-@click.option("--git-commit-email", default="kube-dump@example.com", envvar="GIT_COMMIT_EMAIL")
+@click.option(
+    "--git-commit-email", default="kube-dump@example.com", envvar="GIT_COMMIT_EMAIL"
+)
 @click.option("--git-remote-url", default=None, envvar="GIT_REMOTE_URL")
 @click.option("--archive", "-a", is_flag=True, envvar="ARCHIVE")
 @click.option("--archive-rotate-days", default=7, envvar="ARCHIVE_ROTATE_DAYS")
-@click.option("--archive-type", type=click.Choice(["gz", "bz2", "xz"]), default="gz", envvar="ARCHIVE_TYPE")
+@click.option(
+    "--archive-type",
+    type=click.Choice(["gz", "bz2", "xz"]),
+    default="gz",
+    envvar="ARCHIVE_TYPE",
+)
 @click.option("--cluster-name", default="unknown", envvar="CLUSTER_NAME")
 @click.option("--slack-url", default=None, envvar="SLACK_URL")
 @click.option("--slack-channel", default="#alerts", envvar="SLACK_CHANNEL")
@@ -333,12 +373,12 @@ def cli(
     archive_type,
     cluster_name,
     slack_url,
-    slack_channel
+    slack_channel,
 ):
     global logger
     logger = setup_logger(silent=silent, with_timestamp=False)
     start_time = time.time()
-    
+
     try:
         duration = _run_backup(
             command=command,
@@ -361,16 +401,16 @@ def cli(
             archive_type=archive_type,
             start_time=start_time,
         )
-        
+
         # Send success notification
         send_slack_notification(
             slack_url=slack_url,
             channel=slack_channel,
             cluster_name=cluster_name,
             success=True,
-            duration=duration
+            duration=duration,
         )
-        
+
     except SystemExit as e:
         # Capture sys.exit() calls
         duration = time.time() - start_time
@@ -381,15 +421,15 @@ def cli(
                 cluster_name=cluster_name,
                 success=False,
                 error_message="Backup failed (see logs)",
-                duration=duration
+                duration=duration,
             )
         raise
-        
+
     except Exception as e:
         duration = time.time() - start_time
         error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
         logger.error(f"Backup failed: {e}")
-        
+
         # Send failure notification
         send_slack_notification(
             slack_url=slack_url,
@@ -397,7 +437,7 @@ def cli(
             cluster_name=cluster_name,
             success=False,
             error_message=error_msg,
-            duration=duration
+            duration=duration,
         )
         sys.exit(1)
 
@@ -423,11 +463,18 @@ def _run_backup(
     archive_type,
     start_time,
 ):
-    mode_map = {"all": "all", "dump": "all", "ns": "ns", "dump-namespaces": "ns", "cls": "cls", "dump-cluster": "cls"}
+    mode_map = {
+        "all": "all",
+        "dump": "all",
+        "ns": "ns",
+        "dump-namespaces": "ns",
+        "cls": "cls",
+        "dump-cluster": "cls",
+    }
     mode = mode_map.get(command, "all") if command else "all"
 
     dest = Path(destination_dir).resolve()
-    
+
     # === Git init and pull first (cleans old folders) ===
     git_repo = None
     if git_commit and git_remote_url:
@@ -438,7 +485,7 @@ def _run_backup(
         )
     elif force_remove and dest.exists():
         shutil.rmtree(dest)
-    
+
     dest.mkdir(parents=True, exist_ok=True)
 
     # Load kubeconfig
@@ -464,14 +511,16 @@ def _run_backup(
 
     # Discover resources
     if namespaced_resources.strip() or cluster_resources.strip():
-        logger.warning("Manual resource lists not supported in auto-discovery mode. Ignoring.")
+        logger.warning(
+            "Manual resource lists not supported in auto-discovery mode. Ignoring."
+        )
     ns_resources, cls_resources = discover_resources()
 
     # === Dump namespaced ===
     if mode in ("all", "ns"):
         logger.info("Dumping namespaced resources")
         for ns in ns_list:
-            for (group, version, res_name, _, kind) in ns_resources:
+            for group, version, res_name, _, kind in ns_resources:
                 try:
                     if group == "":
                         path = f"/api/{version}/namespaces/{ns}/{res_name}"
@@ -500,7 +549,7 @@ def _run_backup(
     # === Dump cluster ===
     if mode in ("all", "cls"):
         logger.info("Dumping cluster-wide resources")
-        for (group, version, res_name, _, kind) in cls_resources:
+        for group, version, res_name, _, kind in cls_resources:
             try:
                 if group == "":
                     path = f"/api/{version}/{res_name}"
@@ -535,7 +584,9 @@ def _run_backup(
         tar_path = dest / f"backup-{now}.tar"
         with tarfile.open(tar_path, "w") as tar:
             for item in dest.iterdir():
-                if item.name.startswith("backup-") and (".tar" in item.name or item.name.endswith(f".{archive_type}")):
+                if item.name.startswith("backup-") and (
+                    ".tar" in item.name or item.name.endswith(f".{archive_type}")
+                ):
                     continue
                 tar.add(item, arcname=item.name)
 
@@ -567,7 +618,7 @@ def _run_backup(
             remote_url=git_remote_url,
             commit_user=git_commit_user,
             commit_email=git_commit_email,
-            push=git_push
+            push=git_push,
         )
 
     duration = time.time() - start_time

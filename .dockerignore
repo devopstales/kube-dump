@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.venv
+venv
+.env
+
+# Poetry
+poetry.lock
+
+# IDE
+.idea
+.vscode
+.cursor
+*.swp
+*.swo
+
+# Data/Backup
+data/
+backup/
+
+# Task
+Taskfile.yml
+

@@ -1,10 +1,9 @@
 version: '3'
 
 vars:
-  IMAGE_NAME: imagepullsecret-patcher
+  IMAGE_NAME: kube-dump
   REGISTRY1: devopstales
   REGISTRY2: ghcr.io/devopstales
-  SECRET_NAMES: docker-registry
 
 tasks:
   default:
@@ -18,51 +17,43 @@ tasks:
     cmds:
       - poetry install
 
-  # Run locally (with auto kubeconfig detection)
+  # Run locally
   run:
-    desc: Run the patcher locally (one-time by default)
+    desc: Run kube-dump locally
     deps: [install]
-    env:
-      REGISTRY_SECRET_NAMES: '{{ .SECRET_NAMES }}'
-      RUN_ONCE: '{{ or .RUN_ONCE "true" }}'
-      PATCH_ALL_SERVICEACCOUNTS: '{{ or .PATCH_ALL_SERVICEACCOUNTS "false" }}'
-      FORCE: '{{ or .FORCE "true" }}'
-      MANAGEDONLY: '{{ or .MANAGEDONLY "false" }}'
-      LOOP_INTERVAL: '{{ or .LOOP_INTERVAL "10" }}'
     cmds:
-      - poetry run python imagepullsecret-patcher.py
+      - poetry run python kube-dump.py {{ .CLI_ARGS }}
 
-  # Run as continuous watcher locally (not one-time)
-  watch:
-    desc: Run locally in continuous mode (loop every 10s)
+  # Run with specific namespaces
+  run-ns:
+    desc: Run kube-dump for specific namespaces
     deps: [install]
-    env:
-      REGISTRY_SECRET_NAMES: '{{ .SECRET_NAMES }}'
-      RUN_ONCE: "false"
-      PATCH_ALL_SERVICEACCOUNTS: "false"
-      FORCE: "true"
-      MANAGEDONLY: "false"
-      LOOP_INTERVAL: "10"
     cmds:
-      - poetry run python imagepullsecret-patcher.py
+      - poetry run python kube-dump.py dump-namespaces -n {{ .NAMESPACES | default "default" }} {{ .CLI_ARGS }}
 
   audit:
-    desc: "Run tests for src"
+    desc: "Run pip-audit for vulnerabilities"
     cmds:
       - poetry run pip-audit
 
   scan:
-    desc: "Scan for vulnerabilities"
+    desc: "Scan for vulnerabilities with trivy"
     cmds:
       - trivy -q fs . --scanners vuln
 
   lint:
-    desc: "Lint src"
+    desc: "Lint and format code"
     cmds:
       - poetry run isort .
       - poetry run flake8 .
       - poetry run autoflake --remove-all-unused-imports --recursive --remove-unused-variables --in-place .
       - poetry run black --check .
+
+  format:
+    desc: "Format code with black"
+    cmds:
+      - poetry run isort .
+      - poetry run black .
 
   # Build Docker image (linux/amd64 + linux/arm64)
   docker-build:
@@ -95,12 +86,17 @@ tasks:
           --push .
 
   docker-scan:
-      desc: "Scan docker image for vulnerabilities"
-      cmds:
-        - trivy -q i {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }} --scanners vuln
+    desc: "Scan docker image for vulnerabilities"
+    cmds:
+      - trivy -q i {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }} --scanners vuln
 
   docker-sign:
-    desc: "Sign Kubedash docker image"
+    desc: "Sign kube-dump docker image"
     cmds:
       - cosign sign -y --upload=true --key $HOME/.gnupg/cosign.key {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
       - cosign sign -y --upload=true --key $HOME/.gnupg/cosign.key {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
+
+  clean:
+    desc: "Clean backup directory"
+    cmds:
+      - rm -rf ./backup
