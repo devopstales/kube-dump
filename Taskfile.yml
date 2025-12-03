@@ -1,0 +1,106 @@
+version: '3'
+
+vars:
+  IMAGE_NAME: imagepullsecret-patcher
+  REGISTRY1: devopstales
+  REGISTRY2: ghcr.io/devopstales
+  SECRET_NAMES: docker-registry
+
+tasks:
+  default:
+    desc: "Print Help"
+    cmds:
+      - "task --list-all"
+
+  # Install dependencies
+  install:
+    desc: Install Python dependencies with Poetry
+    cmds:
+      - poetry install
+
+  # Run locally (with auto kubeconfig detection)
+  run:
+    desc: Run the patcher locally (one-time by default)
+    deps: [install]
+    env:
+      REGISTRY_SECRET_NAMES: '{{ .SECRET_NAMES }}'
+      RUN_ONCE: '{{ or .RUN_ONCE "true" }}'
+      PATCH_ALL_SERVICEACCOUNTS: '{{ or .PATCH_ALL_SERVICEACCOUNTS "false" }}'
+      FORCE: '{{ or .FORCE "true" }}'
+      MANAGEDONLY: '{{ or .MANAGEDONLY "false" }}'
+      LOOP_INTERVAL: '{{ or .LOOP_INTERVAL "10" }}'
+    cmds:
+      - poetry run python imagepullsecret-patcher.py
+
+  # Run as continuous watcher locally (not one-time)
+  watch:
+    desc: Run locally in continuous mode (loop every 10s)
+    deps: [install]
+    env:
+      REGISTRY_SECRET_NAMES: '{{ .SECRET_NAMES }}'
+      RUN_ONCE: "false"
+      PATCH_ALL_SERVICEACCOUNTS: "false"
+      FORCE: "true"
+      MANAGEDONLY: "false"
+      LOOP_INTERVAL: "10"
+    cmds:
+      - poetry run python imagepullsecret-patcher.py
+
+  audit:
+    desc: "Run tests for src"
+    cmds:
+      - poetry run pip-audit
+
+  scan:
+    desc: "Scan for vulnerabilities"
+    cmds:
+      - trivy -q fs . --scanners vuln
+
+  lint:
+    desc: "Lint src"
+    cmds:
+      - poetry run isort .
+      - poetry run flake8 .
+      - poetry run autoflake --remove-all-unused-imports --recursive --remove-unused-variables --in-place .
+      - poetry run black --check .
+
+  # Build Docker image (linux/amd64 + linux/arm64)
+  docker-build:
+    desc: Build multi-arch Docker image
+    cmds:
+      - docker buildx build
+          --platform linux/amd64,linux/arm64
+          --tag {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:latest
+          --tag {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
+          --tag {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:latest
+          --tag {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
+          --file Dockerfile
+          --attest type=sbom
+          --sbom=true
+          --load .
+
+  # Build and push
+  docker-build-push:
+    desc: Build and push multi-arch image
+    cmds:
+      - docker buildx build
+          --platform linux/amd64,linux/arm64
+          --tag {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:latest
+          --tag {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
+          --tag {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:latest
+          --tag {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
+          --file Dockerfile
+          --attest type=sbom
+          --sbom=true
+          --push .
+
+  docker-scan:
+      desc: "Scan docker image for vulnerabilities"
+      cmds:
+        - trivy -q i {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }} --scanners vuln
+
+  docker-sign:
+    desc: "Sign Kubedash docker image"
+    cmds:
+      - cosign sign -y --upload=true --key $HOME/.gnupg/cosign.key {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
+      - cosign sign -y --upload=true --key $HOME/.gnupg/cosign.key {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}

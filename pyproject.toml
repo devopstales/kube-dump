@@ -1,0 +1,32 @@
+[project]
+name = "kube-dump"
+version = "0.1.0"
+description = "Backup Kubernetes resources as clean YAML manifests (Python version of kube-dump)"
+authors = [
+    {name = "Páldi Balázs",email = "devopstales2@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+kubernetes = "^29.0"
+PyYAML = "^6.0"
+click = "^8.1"
+GitPython = "^3.1"
+requests = "^2.31"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.0"
+isort = "^5.13"
+pip-audit = "^2.4.4"
+autoflake = "^1.6.1"
+safety = "^3.3.1"
+flake8 = "^7.1.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
