@@ -1,0 +1,115 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kube-dump.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-dump.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  {{- if .Values.cronjob.timezone }}
+  timeZone: {{ .Values.cronjob.timezone | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.cronjob.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.cronjob.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            {{- include "kube-dump.selectorLabels" . | nindent 12 }}
+        spec:
+          serviceAccountName: {{ include "kube-dump.serviceAccountName" . }}
+          restartPolicy: OnFailure
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: {{ .Chart.Name }}
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              env:
+                - name: CLUSTER_NAME
+                  value: {{ .Values.config.clusterName | quote }}
+                {{- if .Values.config.namespaces }}
+                - name: NAMESPACES
+                  value: {{ .Values.config.namespaces | quote }}
+                {{- end }}
+                {{- if .Values.config.detailed }}
+                - name: DETAILED
+                  value: "true"
+                {{- end }}
+                {{- if .Values.git.enabled }}
+                - name: GIT_COMMIT
+                  value: {{ .Values.git.commit | quote }}
+                - name: GIT_PUSH
+                  value: {{ .Values.git.push | quote }}
+                - name: GIT_BRANCH
+                  value: {{ .Values.git.branch | quote }}
+                - name: GIT_COMMIT_USER
+                  value: {{ .Values.git.commitUser | quote }}
+                - name: GIT_COMMIT_EMAIL
+                  value: {{ .Values.git.commitEmail | quote }}
+                - name: GIT_REMOTE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "kube-dump.secretName" . }}
+                      key: {{ .Values.existingSecret.gitRemoteUrlKey }}
+                {{- end }}
+                {{- if .Values.slack.enabled }}
+                - name: SLACK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "kube-dump.secretName" . }}
+                      key: {{ .Values.existingSecret.slackWebhookUrlKey }}
+                      optional: true
+                - name: SLACK_CHANNEL
+                  value: {{ .Values.slack.channel | quote }}
+                {{- end }}
+                {{- if .Values.archive.enabled }}
+                - name: ARCHIVE
+                  value: "true"
+                - name: ARCHIVE_TYPE
+                  value: {{ .Values.archive.type | quote }}
+                - name: ARCHIVE_ROTATE_DAYS
+                  value: {{ .Values.archive.rotateDays | quote }}
+                {{- end }}
+              {{- with .Values.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with .Values.securityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- if .Values.persistence.enabled }}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "kube-dump.fullname" . }}
+          {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+

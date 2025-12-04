@@ -1,0 +1,113 @@
+# Default values for kube-dump
+
+replicaCount: 1
+
+image:
+  repository: devopstales/kube-dump
+  pullPolicy: Always
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC settings
+rbac:
+  create: true
+  # Use built-in 'view' ClusterRole (doesn't include secrets)
+  # Set to false to create custom ClusterRole with full read access
+  useViewRole: false
+
+# CronJob settings
+cronjob:
+  # Cron schedule (default: daily at 2:00 AM)
+  schedule: "0 2 * * *"
+  # Timezone for the cron schedule
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  backoffLimit: 1
+
+# kube-dump configuration
+config:
+  # Cluster name for notifications
+  clusterName: "my-cluster"
+  # Namespaces to backup (empty = all)
+  namespaces: ""
+  # Keep detailed fields (status, etc.)
+  detailed: false
+
+# Git settings
+git:
+  enabled: true
+  commit: true
+  push: true
+  branch: "main"
+  # Remote URL with credentials (use existingSecret for production)
+  remoteUrl: ""
+  commitUser: "kube-dump"
+  commitEmail: "kube-dump@example.com"
+
+# Slack notifications
+slack:
+  enabled: false
+  # Webhook URL (use existingSecret for production)
+  webhookUrl: ""
+  channel: "#k8s-backups"
+
+# Use existing secret for credentials
+existingSecret:
+  # Name of existing secret
+  name: ""
+  # Key for git remote URL
+  gitRemoteUrlKey: "git-remote-url"
+  # Key for slack webhook URL
+  slackWebhookUrlKey: "slack-url"
+
+# Archive settings
+archive:
+  enabled: false
+  type: "gz"  # gz, bz2, xz
+  rotateDays: 30
+
+# Persistence
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 5Gi
+  annotations: {}
+
+# Pod resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Pod security context
+podSecurityContext: {}
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: false
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+

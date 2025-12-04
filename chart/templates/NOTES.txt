@@ -1,0 +1,28 @@
+kube-dump has been installed!
+
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+CronJob Schedule: {{ .Values.cronjob.schedule }}
+{{- if .Values.cronjob.timezone }}
+Timezone: {{ .Values.cronjob.timezone }}
+{{- end }}
+
+Configuration:
+  Cluster Name: {{ .Values.config.clusterName }}
+  Git Enabled: {{ .Values.git.enabled }}
+  Git Push: {{ .Values.git.push }}
+  Slack Enabled: {{ .Values.slack.enabled }}
+  Archive Enabled: {{ .Values.archive.enabled }}
+  Persistence Enabled: {{ .Values.persistence.enabled }}
+
+To manually trigger a backup job:
+  kubectl create job --from=cronjob/{{ include "kube-dump.fullname" . }} {{ include "kube-dump.fullname" . }}-manual -n {{ .Release.Namespace }}
+
+To check the CronJob status:
+  kubectl get cronjob {{ include "kube-dump.fullname" . }} -n {{ .Release.Namespace }}
+
+To view logs from the last job:
+  kubectl logs -l app.kubernetes.io/name={{ include "kube-dump.name" . }} -n {{ .Release.Namespace }}
+

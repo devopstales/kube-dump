@@ -322,7 +322,7 @@ def git_commit_and_push(
     "--destination-dir",
     "-d",
     type=click.Path(),
-    default="./data",
+    default="./backup",
     envvar="DESTINATION_DIR",
 )
 @click.option("--force-remove", "-f", is_flag=True, envvar="FORCE_REMOVE")

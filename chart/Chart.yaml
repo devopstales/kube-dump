@@ -1,0 +1,19 @@
+apiVersion: v2
+name: kube-dump
+description: Backup Kubernetes cluster resources as clean YAML manifests
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - kubernetes
+  - backup
+  - dump
+  - yaml
+  - gitops
+home: https://github.com/devopstales/kube-dump
+sources:
+  - https://github.com/devopstales/kube-dump
+maintainers:
+  - name: devopstales
+    email: devopstales2@gmail.com
+

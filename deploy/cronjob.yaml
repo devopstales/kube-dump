@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kube-dump
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: kube-dump
+    app.kubernetes.io/component: backup
+spec:
+  # Run daily at 2:00 AM
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kube-dump
+            app.kubernetes.io/component: backup
+        spec:
+          serviceAccountName: kube-dump
+          restartPolicy: OnFailure
+          containers:
+            - name: kube-dump
+              image: devopstales/kube-dump:latest
+              imagePullPolicy: Always
+              env:
+                - name: CRON_TZ
+                  value: "CET"
+                  
+                # Cluster identification
+                - name: CLUSTER_NAME
+                  value: "my-cluster"
+                
+                # Git settings
+                - name: GIT_COMMIT
+                  value: "true"
+                - name: GIT_PUSH
+                  value: "true"
+                - name: GIT_BRANCH
+                  value: "main"
+                - name: GIT_REMOTE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: kube-dump
+                      key: git-remote-url
+                
+                # Slack notifications (optional)
+                - name: SLACK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: kube-dump
+                      key: slack-url
+                      optional: true
+                - name: SLACK_CHANNEL
+                  value: "#k8s-backups"
+                
+                # Archive settings (optional)
+                # - name: ARCHIVE
+                #   value: "true"
+                # - name: ARCHIVE_TYPE
+                #   value: "gz"
+                # - name: ARCHIVE_ROTATE_DAYS
+                #   value: "30"
+              
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                runAsNonRoot: false
+              
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: kube-dump

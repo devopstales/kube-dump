@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-dump
+  labels:
+    app.kubernetes.io/name: kube-dump
+    app.kubernetes.io/component: backup
+rules:
+  # Read all resources
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+  # Read non-resource URLs (for API discovery)
+  - nonResourceURLs: ["*"]
+    verbs: ["get"]
+

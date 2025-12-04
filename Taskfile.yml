@@ -96,7 +96,70 @@ tasks:
       - cosign sign -y --upload=true --key $HOME/.gnupg/cosign.key {{ .REGISTRY1 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
       - cosign sign -y --upload=true --key $HOME/.gnupg/cosign.key {{ .REGISTRY2 }}/{{ .IMAGE_NAME }}:{{ .VERSION | default "dev" }}
 
-  clean:
-    desc: "Clean backup directory"
+  # Helm tasks
+  helm-lint:
+    desc: "Lint Helm chart"
     cmds:
-      - rm -rf ./backup
+      - helm lint ./chart
+
+  helm-template:
+    desc: "Render Helm chart templates locally"
+    cmds:
+      - helm template kube-dump ./chart --namespace kube-dump {{ .CLI_ARGS }}
+
+  helm-package:
+    desc: "Package Helm chart"
+    cmds:
+      - helm package ./chart --destination ./dist
+
+  helm-docs:
+    desc: "Generate Helm chart documentation (requires helm-docs)"
+    cmds:
+      - helm-docs --chart-search-root ./chart --output-file README.md
+
+  helm-install:
+    desc: "Install Helm chart locally for testing"
+    cmds:
+      - helm upgrade --install kube-dump ./chart
+          --namespace kube-dump
+          --create-namespace
+          --set config.clusterName={{ .CLUSTER_NAME | default "test-cluster" }}
+          {{ .CLI_ARGS }}
+
+  helm-uninstall:
+    desc: "Uninstall Helm chart"
+    cmds:
+      - helm uninstall kube-dump --namespace kube-dump
+
+  helm-diff:
+    desc: "Show diff of Helm chart changes (requires helm-diff plugin)"
+    cmds:
+      - helm diff upgrade kube-dump ./chart
+          --namespace kube-dump
+          --set config.clusterName={{ .CLUSTER_NAME | default "test-cluster" }}
+          {{ .CLI_ARGS }}
+
+  helm-publish:
+    desc: "Publish Helm chart to devopstales/helm-charts repo (gh-pages)"
+    dir: chart
+    vars:
+      CHART_VERSION:
+        sh: grep '^version:' Chart.yaml | awk '{print $2}'
+    cmds:
+      - rm -rf gh-pages-temp .cr-release-packages
+      - cr package .
+      - git clone -b gh-pages git@github.com:devopstales/helm-charts.git gh-pages-temp
+      - cp .cr-release-packages/kube-dump-{{ .CHART_VERSION }}.tgz gh-pages-temp/
+      - |
+        cd gh-pages-temp
+        git config user.name "kube-dump"
+        git config user.email "kube-dump@devopstales.io"
+        git add .
+        git commit -n -m "Update kube-dump chart to {{ .CHART_VERSION }}"
+        git push --no-verify origin gh-pages
+      - rm -rf gh-pages-temp .cr-release-packages
+
+  clean:
+    desc: "Clean backup directory and dist"
+    cmds:
+      - rm -rf ./backup ./dist
